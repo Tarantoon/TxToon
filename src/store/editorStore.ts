@@ -56,7 +56,11 @@ const normalizeImageScale = (scale: Scale, fallback: Scale): Scale => ({
     : fallback.y,
 })
 
-const normalizeCharacter = (value: string): string | null => {
+const normalizeCharacter = (value: string | null | undefined): string | null => {
+  if (value == null) {
+    return null
+  }
+
   const character = Array.from(value)[0]
   if (!character || character === '\n' || character === '\r') {
     return null
@@ -288,7 +292,7 @@ export const useEditorStore = create<EditorStore>()((set) => ({
   setSelectedCharacter: (value) => {
     const selectedCharacter = normalizeCharacter(value)
     set((state) =>
-      selectedCharacter && state.selectedCharacter !== selectedCharacter
+      state.selectedCharacter !== selectedCharacter
         ? { selectedCharacter }
         : state,
     )
@@ -331,7 +335,7 @@ export const useEditorStore = create<EditorStore>()((set) => ({
         (layer) => layer.id === state.activeLayerId,
       )
       const paintCharacter = normalizeCharacter(
-        character ?? state.selectedCharacter,
+        character === undefined ? state.selectedCharacter : character,
       )
       if (activeLayer?.type !== 'ascii' || !paintCharacter) {
         return state

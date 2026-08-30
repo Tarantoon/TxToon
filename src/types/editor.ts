@@ -66,7 +66,7 @@ export interface EditorState {
   layers: EditorLayer[]
   activeLayerId: LayerId | null
   projectName: string
-  selectedCharacter: string
+  selectedCharacter: string | null
   showGrid: boolean
   gridSize: GridSize
   camera: CameraState
@@ -90,11 +90,11 @@ export interface EditorActions {
   moveLayer: (layerId: LayerId, direction: LayerDirection) => void
   reorderLayer: (layerId: LayerId, targetLayerId: LayerId) => void
   setProjectName: (projectName: string) => void
-  setSelectedCharacter: (character: string) => void
+  setSelectedCharacter: (character: string | null) => void
   setShowGrid: (showGrid: boolean) => void
   setGridSize: (gridSize: GridSize) => void
   resizeGrid: (delta: GridResizeDelta) => void
-  paintCells: (points: Point[], character?: string) => void
+  paintCells: (points: Point[], character?: string | null) => void
   moveCells: (points: Point[], offset: Point) => void
   setCameraZoom: (zoom: number, anchor: Point) => void
   panCamera: (delta: Point) => void

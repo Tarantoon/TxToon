@@ -100,6 +100,7 @@ export function CanvasEditor() {
   const showGrid = useEditorStore((state) => state.showGrid)
   const gridSize = useEditorStore((state) => state.gridSize)
   const camera = useEditorStore((state) => state.camera)
+  const selectedCharacter = useEditorStore((state) => state.selectedCharacter)
   const paintCells = useEditorStore((state) => state.paintCells)
   const moveCells = useEditorStore((state) => state.moveCells)
   const setImageLayerTransform = useEditorStore(
@@ -364,6 +365,18 @@ export function CanvasEditor() {
       return
     }
 
+    if (event.button === 0 && selectedCharacter === null) {
+      const screenPoint = getScreenPoint(event)
+      if (screenPoint) {
+        capturePointer(event, {
+          type: 'pan',
+          pointerId: event.pointerId,
+          lastScreenPoint: screenPoint,
+        })
+      }
+      return
+    }
+
     const point = getPointerGridPoint(event)
     if (!point) {
       return
@@ -623,7 +636,7 @@ export function CanvasEditor() {
       >
         <canvas
           ref={canvasRef}
-          className={`block h-full w-full bg-neutral-300 ${activeLayer?.type === 'ascii' ? 'cursor-crosshair' : activeLayer?.type === 'image' ? 'cursor-move' : 'cursor-grab'}`}
+          className={`block h-full w-full bg-neutral-300 ${activeLayer?.type === 'ascii' ? (selectedCharacter === null ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair') : activeLayer?.type === 'image' ? 'cursor-move' : 'cursor-grab'}`}
           aria-label="TxToon ASCII drawing canvas"
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
@@ -650,7 +663,9 @@ export function CanvasEditor() {
         <span className="hidden truncate text-neutral-500 xl:inline">
           {activeLayer?.type === 'image'
             ? 'DRAG IMAGE: MOVE / CORNER HANDLE: SCALE / MIDDLE OR ALT: PAN'
-            : 'LEFT: DRAW / RIGHT: SELECT + MOVE / MIDDLE OR ALT: PAN / WHEEL: ZOOM'}
+            : selectedCharacter === null
+              ? 'HAND MODE / LEFT: PAN / RIGHT: SELECT + MOVE / WHEEL: ZOOM'
+              : 'LEFT: DRAW / RIGHT: SELECT + MOVE / MIDDLE OR ALT: PAN / WHEEL: ZOOM'}
         </span>
         <span className="shrink-0">{activeSelectedPoints.length} SELECTED</span>
       </div>

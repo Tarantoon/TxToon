@@ -78,8 +78,9 @@ export function CharacterPalette() {
         <label className="flex flex-col gap-1 font-mono text-[10px] font-black tracking-widest">
           ACTIVE GLYPH
           <input
-            value={selectedCharacter}
+            value={selectedCharacter ?? ''}
             onChange={(event) => setSelectedCharacter(event.target.value)}
+            placeholder="PAN"
             className="h-14 w-full border-2 border-black bg-white text-center font-mono text-3xl font-black outline-none focus:bg-neutral-100"
             aria-label="Selected drawing character"
           />
@@ -89,7 +90,11 @@ export function CharacterPalette() {
             <button
               key={character}
               type="button"
-              onClick={() => setSelectedCharacter(character)}
+              onClick={() =>
+                setSelectedCharacter(
+                  selectedCharacter === character ? null : character,
+                )
+              }
               className={`h-9 bg-white font-mono text-sm font-black hover:bg-neutral-300 ${selectedCharacter === character ? 'bg-black text-white hover:bg-black' : ''}`}
               aria-label={character === ' ' ? 'Eraser' : `Use ${character}`}
               aria-pressed={selectedCharacter === character}

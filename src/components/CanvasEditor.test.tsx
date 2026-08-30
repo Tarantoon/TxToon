@@ -137,6 +137,122 @@ describe('CanvasEditor', () => {
     })
   })
 
+  it('enters hand-pan mode when no glyph is selected, pans on left drag, and still allows right-click cell movement', async () => {
+    useEditorStore.getState().setSelectedCharacter(null)
+
+    const { getByLabelText } = render(<CanvasEditor />)
+    const canvas = getByLabelText('TxToon ASCII drawing canvas') as HTMLCanvasElement
+
+    await waitFor(() => expect(canvas.width).toBe(200))
+    expect(canvas.className).toContain('cursor-grab')
+    expect(canvas.className).toContain('active:cursor-grabbing')
+
+    fireEvent.pointerDown(canvas, {
+      button: 0,
+      buttons: 1,
+      pointerId: 21,
+      clientX: 60,
+      clientY: 30,
+    })
+    fireEvent.pointerMove(canvas, {
+      pointerId: 21,
+      buttons: 1,
+      clientX: 84,
+      clientY: 42,
+    })
+    fireEvent.pointerUp(canvas, {
+      pointerId: 21,
+      clientX: 84,
+      clientY: 42,
+    })
+
+    expect(useEditorStore.getState().camera.pan).toEqual({ x: 24, y: 12 })
+    expect(useEditorStore.getState().layers[0]).toMatchObject({
+      type: 'ascii',
+      cells: { '0,0': 'A' },
+    })
+
+    const metrics = getGridMetrics({ columns: 2, rows: 2 }, { width: 200, height: 100 })
+    const camera = useEditorStore.getState().camera
+    const sourcePoint = {
+      x: metrics.origin.x + camera.pan.x + metrics.cellWidth / 2,
+      y: metrics.origin.y + camera.pan.y + metrics.cellHeight / 2,
+    }
+    const destinationPoint = {
+      x: sourcePoint.x + metrics.cellWidth,
+      y: sourcePoint.y,
+    }
+
+    fireEvent.pointerDown(canvas, {
+      button: 2,
+      buttons: 2,
+      pointerId: 22,
+      clientX: sourcePoint.x,
+      clientY: sourcePoint.y,
+    })
+    fireEvent.pointerMove(canvas, {
+      pointerId: 22,
+      buttons: 2,
+      clientX: destinationPoint.x,
+      clientY: destinationPoint.y,
+    })
+    fireEvent.pointerUp(canvas, {
+      pointerId: 22,
+      clientX: destinationPoint.x,
+      clientY: destinationPoint.y,
+    })
+
+    expect(useEditorStore.getState().camera.pan).toEqual({ x: 24, y: 12 })
+    expect(useEditorStore.getState().layers[0]).toMatchObject({
+      type: 'ascii',
+      cells: { '1,0': 'A' },
+    })
+  })
+
+  it('keeps left-drag painting active when a glyph is selected', async () => {
+    useEditorStore.getState().setSelectedCharacter('B')
+
+    const { getByLabelText } = render(<CanvasEditor />)
+    const canvas = getByLabelText('TxToon ASCII drawing canvas') as HTMLCanvasElement
+
+    await waitFor(() => expect(canvas.width).toBe(200))
+    expect(canvas.className).toContain('cursor-crosshair')
+
+    const metrics = getGridMetrics({ columns: 2, rows: 2 }, { width: 200, height: 100 })
+    const startPoint = {
+      x: metrics.origin.x + metrics.cellWidth / 2,
+      y: metrics.origin.y + metrics.cellHeight / 2,
+    }
+    const endPoint = {
+      x: startPoint.x + metrics.cellWidth,
+      y: startPoint.y,
+    }
+
+    fireEvent.pointerDown(canvas, {
+      button: 0,
+      buttons: 1,
+      pointerId: 23,
+      clientX: startPoint.x,
+      clientY: startPoint.y,
+    })
+    fireEvent.pointerMove(canvas, {
+      pointerId: 23,
+      buttons: 1,
+      clientX: endPoint.x,
+      clientY: endPoint.y,
+    })
+    fireEvent.pointerUp(canvas, {
+      pointerId: 23,
+      clientX: endPoint.x,
+      clientY: endPoint.y,
+    })
+
+    expect(useEditorStore.getState().layers[0]).toMatchObject({
+      type: 'ascii',
+      cells: { '0,0': 'B', '1,0': 'B' },
+    })
+  })
+
   it('cancels right-button moves without committing selection changes', async () => {
     const { getByLabelText } = render(<CanvasEditor />)
     const canvas = getByLabelText('TxToon ASCII drawing canvas') as HTMLCanvasElement

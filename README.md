@@ -65,7 +65,8 @@ bun run preview
 
 ### Canvas
 
-- Left-drag on an ASCII layer to paint the selected glyph.
+- Left-drag on an ASCII layer to paint when a glyph is selected.
+- With no glyph selected, left-drag pans the canvas in hand mode.
 - Right-drag an existing glyph or an active selection to move it.
 - Right-drag empty grid space to create a marquee selection.
 - Middle-drag or Alt+left-drag to pan.
@@ -78,6 +79,7 @@ bun run preview
 ### Character palette
 
 - Choose the active drawing glyph from the preset character set.
+- Click the active preset again, or clear the glyph field, to enter hand mode.
 - Edit the active glyph directly in the text field.
 - Change grid columns and rows with the number inputs or +/- buttons.
 - Toggle the guide grid.

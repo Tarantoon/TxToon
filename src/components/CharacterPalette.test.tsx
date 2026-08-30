@@ -73,4 +73,39 @@ describe('CharacterPalette', () => {
       '3,2': '#',
     })
   })
+
+  it('toggles nullable glyph selection, keeps eraser independent, and clears to PAN mode', () => {
+    render(<CharacterPalette />)
+
+    const hashButton = screen.getByRole('button', { name: 'Use #' }) as HTMLButtonElement
+    const eraserButton = screen.getByRole('button', { name: 'Eraser' }) as HTMLButtonElement
+    const selectedGlyphInput = screen.getByLabelText('Selected drawing character') as HTMLInputElement
+
+    expect(hashButton.getAttribute('aria-pressed')).toBe('true')
+    expect(hashButton.className).toContain('bg-black')
+    expect(hashButton.className).toContain('text-white')
+
+    fireEvent.click(hashButton)
+    expect(useEditorStore.getState().selectedCharacter).toBeNull()
+    expect(hashButton.getAttribute('aria-pressed')).toBe('false')
+
+    fireEvent.click(hashButton)
+    expect(useEditorStore.getState().selectedCharacter).toBe('#')
+    expect(hashButton.getAttribute('aria-pressed')).toBe('true')
+
+    fireEvent.click(eraserButton)
+    expect(useEditorStore.getState().selectedCharacter).toBe(' ')
+    expect(eraserButton.getAttribute('aria-pressed')).toBe('true')
+    expect(eraserButton.className).toContain('bg-black')
+    expect(eraserButton.className).toContain('text-white')
+
+    fireEvent.click(eraserButton)
+    expect(useEditorStore.getState().selectedCharacter).toBeNull()
+    expect(eraserButton.getAttribute('aria-pressed')).toBe('false')
+
+    fireEvent.change(selectedGlyphInput, { target: { value: '' } })
+    expect(useEditorStore.getState().selectedCharacter).toBeNull()
+    expect(selectedGlyphInput.value).toBe('')
+    expect(selectedGlyphInput.placeholder).toBe('PAN')
+  })
 })

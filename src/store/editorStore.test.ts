@@ -239,6 +239,38 @@ describe('useEditorStore', () => {
     })
   })
 
+  it('normalizes nullable glyph selection and treats null painting as a no-op while preserving space erasing', () => {
+    const store = useEditorStore.getState()
+    const layerId = store.activeLayerId
+
+    if (!layerId) {
+      throw new Error('Expected an initial active layer')
+    }
+
+    store.setGridSize({ columns: 2, rows: 2 })
+    store.paintCells([{ x: 0, y: 0 }], 'A')
+
+    store.setSelectedCharacter('')
+    expect(useEditorStore.getState().selectedCharacter).toBeNull()
+
+    store.paintCells([{ x: 0, y: 0 }])
+    expect(getAsciiLayerCells(layerId)).toEqual({ '0,0': 'A' })
+
+    store.paintCells([{ x: 0, y: 0 }], null)
+    expect(getAsciiLayerCells(layerId)).toEqual({ '0,0': 'A' })
+
+    store.setSelectedCharacter(' ')
+    expect(useEditorStore.getState().selectedCharacter).toBe(' ')
+
+    store.paintCells([{ x: 0, y: 0 }])
+    expect(getAsciiLayerCells(layerId)).toEqual({})
+
+    store.paintCells([{ x: 1, y: 1 }], 'B')
+    store.paintCells([{ x: 1, y: 1 }], ' ')
+
+    expect(getAsciiLayerCells(layerId)).toEqual({})
+  })
+
   it('updates only the requested image layer and normalizes non-finite position and scale inputs', () => {
     const store = useEditorStore.getState()
     const asciiLayerId = store.activeLayerId
