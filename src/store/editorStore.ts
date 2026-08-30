@@ -5,6 +5,7 @@ import type {
   EditorState,
   EditorStore,
   GridCellKey,
+  GridResizeDelta,
   GridSize,
   ImageLayer,
   ImageLayerOptions,
@@ -12,10 +13,11 @@ import type {
   Point,
 } from '../types/editor'
 
-export const GRANULARITY_MIN = 10
-export const GRANULARITY_MAX = 32
-export const DEFAULT_GRANULARITY = 18
-export const DEFAULT_GRID_SIZE: GridSize = { columns: 80, rows: 32 }
+export const GRID_SIZE_MIN = 1
+export const GRID_SIZE_MAX = 500
+export const CAMERA_ZOOM_MIN = 0.25
+export const CAMERA_ZOOM_MAX = 8
+export const DEFAULT_GRID_SIZE: GridSize = { columns: 120, rows: 80 }
 
 const createLayerId = (): LayerId =>
   globalThis.crypto?.randomUUID?.() ??
@@ -47,8 +49,19 @@ const normalizeCharacter = (value: string): string | null => {
 }
 
 const normalizeGridSize = ({ columns, rows }: GridSize): GridSize => ({
-  columns: Number.isFinite(columns) ? Math.max(1, Math.floor(columns)) : 1,
-  rows: Number.isFinite(rows) ? Math.max(1, Math.floor(rows)) : 1,
+  columns: Number.isFinite(columns)
+    ? clamp(Math.floor(columns), GRID_SIZE_MIN, GRID_SIZE_MAX)
+    : GRID_SIZE_MIN,
+  rows: Number.isFinite(rows)
+    ? clamp(Math.floor(rows), GRID_SIZE_MIN, GRID_SIZE_MAX)
+    : GRID_SIZE_MIN,
+})
+
+const getCellKey = ({ x, y }: Point): GridCellKey => `${x},${y}`
+
+const normalizeGridDelta = (delta: GridResizeDelta): Required<GridResizeDelta> => ({
+  columns: Number.isFinite(delta.columns) ? Math.trunc(delta.columns ?? 0) : 0,
+  rows: Number.isFinite(delta.rows) ? Math.trunc(delta.rows ?? 0) : 0,
 })
 
 const createInitialState = (): EditorState => {
@@ -57,10 +70,11 @@ const createInitialState = (): EditorState => {
   return {
     layers: [initialLayer],
     activeLayerId: initialLayer.id,
+    projectName: 'Untitled',
     selectedCharacter: '#',
-    granularity: DEFAULT_GRANULARITY,
     showGrid: true,
     gridSize: { ...DEFAULT_GRID_SIZE },
+    camera: { zoom: 1, pan: { x: 0, y: 0 } },
   }
 }
 
@@ -195,6 +209,33 @@ export const useEditorStore = create<EditorStore>()((set) => ({
     })
   },
 
+  reorderLayer: (layerId, targetLayerId) => {
+    set((state) => {
+      const sourceIndex = state.layers.findIndex((layer) => layer.id === layerId)
+      const targetIndex = state.layers.findIndex(
+        (layer) => layer.id === targetLayerId,
+      )
+      if (
+        sourceIndex === -1 ||
+        targetIndex === -1 ||
+        sourceIndex === targetIndex
+      ) {
+        return state
+      }
+
+      const layers = [...state.layers]
+      const [layer] = layers.splice(sourceIndex, 1)
+      layers.splice(targetIndex, 0, layer)
+      return { layers }
+    })
+  },
+
+  setProjectName: (projectName) => {
+    set((state) =>
+      state.projectName === projectName ? state : { projectName },
+    )
+  },
+
   setSelectedCharacter: (value) => {
     const selectedCharacter = normalizeCharacter(value)
     set((state) =>
@@ -202,18 +243,6 @@ export const useEditorStore = create<EditorStore>()((set) => ({
         ? { selectedCharacter }
         : state,
     )
-  },
-
-  setGranularity: (granularity) => {
-    if (Number.isFinite(granularity)) {
-      set({
-        granularity: clamp(
-          Math.round(granularity),
-          GRANULARITY_MIN,
-          GRANULARITY_MAX,
-        ),
-      })
-    }
   },
 
   setShowGrid: (showGrid) =>
@@ -227,6 +256,24 @@ export const useEditorStore = create<EditorStore>()((set) => ({
         ? state
         : { gridSize: normalizedGridSize },
     )
+  },
+
+  resizeGrid: (delta) => {
+    const normalizedDelta = normalizeGridDelta(delta)
+    if (normalizedDelta.columns === 0 && normalizedDelta.rows === 0) {
+      return
+    }
+
+    set((state) => {
+      const gridSize = normalizeGridSize({
+        columns: state.gridSize.columns + normalizedDelta.columns,
+        rows: state.gridSize.rows + normalizedDelta.rows,
+      })
+      return state.gridSize.columns === gridSize.columns &&
+        state.gridSize.rows === gridSize.rows
+        ? state
+        : { gridSize }
+    })
   },
 
   paintCells: (points, character) => {
@@ -249,7 +296,7 @@ export const useEditorStore = create<EditorStore>()((set) => ({
           continue
         }
 
-        const key = `${point.x},${point.y}` as GridCellKey
+        const key = getCellKey(point)
         if (paintCharacter === ' ') {
           if (key in cells) {
             delete cells[key]
@@ -271,6 +318,112 @@ export const useEditorStore = create<EditorStore>()((set) => ({
         ),
       }
     })
+  },
+
+  moveCells: (points, offset) => {
+    if (
+      !Number.isInteger(offset.x) ||
+      !Number.isInteger(offset.y) ||
+      (offset.x === 0 && offset.y === 0)
+    ) {
+      return
+    }
+
+    set((state) => {
+      const activeLayer = state.layers.find(
+        (layer) => layer.id === state.activeLayerId,
+      )
+      if (activeLayer?.type !== 'ascii') {
+        return state
+      }
+
+      const uniquePoints = [
+        ...new Map(points.map((point) => [getCellKey(point), point])).values(),
+      ]
+      const movingCells = uniquePoints.flatMap((point) => {
+        const character = activeLayer.cells[getCellKey(point)]
+        return character ? [{ point, character }] : []
+      })
+      if (movingCells.length === 0) {
+        return state
+      }
+
+      const destinations = movingCells.map(({ point }) => ({
+        x: point.x + offset.x,
+        y: point.y + offset.y,
+      }))
+      if (destinations.some((point) => !isPointInGrid(point, state.gridSize))) {
+        return state
+      }
+
+      const cells = { ...activeLayer.cells }
+      for (const { point } of movingCells) {
+        delete cells[getCellKey(point)]
+      }
+      movingCells.forEach(({ character }, index) => {
+        cells[getCellKey(destinations[index])] = character
+      })
+
+      return {
+        layers: state.layers.map((layer) =>
+          layer.id === activeLayer.id ? { ...activeLayer, cells } : layer,
+        ),
+      }
+    })
+  },
+
+  setCameraZoom: (zoom, anchor) => {
+    if (!Number.isFinite(zoom) || !Number.isFinite(anchor.x) || !Number.isFinite(anchor.y)) {
+      return
+    }
+
+    set((state) => {
+      const nextZoom = clamp(zoom, CAMERA_ZOOM_MIN, CAMERA_ZOOM_MAX)
+      if (nextZoom === state.camera.zoom) {
+        return state
+      }
+
+      const zoomRatio = nextZoom / state.camera.zoom
+      return {
+        camera: {
+          zoom: nextZoom,
+          pan: {
+            x: anchor.x - (anchor.x - state.camera.pan.x) * zoomRatio,
+            y: anchor.y - (anchor.y - state.camera.pan.y) * zoomRatio,
+          },
+        },
+      }
+    })
+  },
+
+  panCamera: (delta) => {
+    if (!Number.isFinite(delta.x) || !Number.isFinite(delta.y)) {
+      return
+    }
+
+    set((state) =>
+      delta.x === 0 && delta.y === 0
+        ? state
+        : {
+            camera: {
+              ...state.camera,
+              pan: {
+                x: state.camera.pan.x + delta.x,
+                y: state.camera.pan.y + delta.y,
+              },
+            },
+          },
+    )
+  },
+
+  resetCamera: () => {
+    set((state) =>
+      state.camera.zoom === 1 &&
+      state.camera.pan.x === 0 &&
+      state.camera.pan.y === 0
+        ? state
+        : { camera: { zoom: 1, pan: { x: 0, y: 0 } } },
+    )
   },
 
   resetEditor: () => set(createInitialState()),

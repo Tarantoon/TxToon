@@ -17,6 +17,21 @@ export interface GridSize {
   rows: number
 }
 
+export interface ViewportSize {
+  width: number
+  height: number
+}
+
+export interface CameraState {
+  zoom: number
+  pan: Point
+}
+
+export interface GridResizeDelta {
+  columns?: number
+  rows?: number
+}
+
 export interface BaseLayer {
   id: LayerId
   name: string
@@ -50,10 +65,11 @@ export type LayerDirection = 'up' | 'down'
 export interface EditorState {
   layers: EditorLayer[]
   activeLayerId: LayerId | null
+  projectName: string
   selectedCharacter: string
-  granularity: number
   showGrid: boolean
   gridSize: GridSize
+  camera: CameraState
 }
 
 export interface EditorActions {
@@ -67,11 +83,17 @@ export interface EditorActions {
   setLayerVisibility: (layerId: LayerId, visible: boolean) => void
   setImageLayerOpacity: (layerId: LayerId, opacity: number) => void
   moveLayer: (layerId: LayerId, direction: LayerDirection) => void
+  reorderLayer: (layerId: LayerId, targetLayerId: LayerId) => void
+  setProjectName: (projectName: string) => void
   setSelectedCharacter: (character: string) => void
-  setGranularity: (granularity: number) => void
   setShowGrid: (showGrid: boolean) => void
   setGridSize: (gridSize: GridSize) => void
+  resizeGrid: (delta: GridResizeDelta) => void
   paintCells: (points: Point[], character?: string) => void
+  moveCells: (points: Point[], offset: Point) => void
+  setCameraZoom: (zoom: number, anchor: Point) => void
+  panCamera: (delta: Point) => void
+  resetCamera: () => void
   resetEditor: () => void
 }
 

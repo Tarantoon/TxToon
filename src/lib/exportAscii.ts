@@ -1,5 +1,31 @@
 import type { AsciiLayer, EditorLayer, GridSize } from '../types/editor'
 
+const MAX_FILE_NAME_LENGTH = 80
+
+const RESERVED_WINDOWS_FILE_NAME_PATTERN =
+  /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
+
+const sanitizeProjectBaseName = (projectName: string): string => {
+  const baseName = projectName
+    .trim()
+    .replace(/\.txt$/i, '')
+    .replace(/[<>:"/\\|?*]/g, '-')
+    .split('')
+    .map((character) => (character.charCodeAt(0) < 32 ? '-' : character))
+    .join('')
+    .replace(/[. ]+$/g, '')
+    .slice(0, MAX_FILE_NAME_LENGTH)
+    .replace(/[. ]+$/g, '')
+
+  if (!baseName) {
+    return 'Untitled'
+  }
+
+  return RESERVED_WINDOWS_FILE_NAME_PATTERN.test(baseName)
+    ? `${baseName}-`
+    : baseName
+}
+
 export const compileAsciiText = (
   layersBottomToTop: EditorLayer[],
   gridSize: GridSize,
@@ -36,9 +62,7 @@ export const downloadAsciiText = (
   content: string,
   fileName = 'txtoon-export.txt',
 ): void => {
-  const safeFileName = fileName.toLowerCase().endsWith('.txt')
-    ? fileName
-    : `${fileName}.txt`
+  const safeFileName = `${sanitizeProjectBaseName(fileName)}.txt`
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
   const downloadUrl = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -46,8 +70,15 @@ export const downloadAsciiText = (
   link.href = downloadUrl
   link.download = safeFileName
   link.style.display = 'none'
-  document.body.append(link)
-  link.click()
-  link.remove()
-  URL.revokeObjectURL(downloadUrl)
+  try {
+    document.body.append(link)
+    link.click()
+  } finally {
+    link.remove()
+    URL.revokeObjectURL(downloadUrl)
+  }
+}
+
+export const getProjectFileName = (projectName: string): string => {
+  return `${sanitizeProjectBaseName(projectName)}.txt`
 }

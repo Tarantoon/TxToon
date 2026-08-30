@@ -1,8 +1,10 @@
-import { useState, type ChangeEvent } from 'react'
+import { useState, type ChangeEvent, type DragEvent } from 'react'
 import { useEditorStore } from '../store/editorStore'
 
 export function LayerPanel() {
   const [uploadError, setUploadError] = useState('')
+  const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null)
+  const [dragTargetLayerId, setDragTargetLayerId] = useState<string | null>(null)
   const layers = useEditorStore((state) => state.layers)
   const activeLayerId = useEditorStore((state) => state.activeLayerId)
   const addAsciiLayer = useEditorStore((state) => state.addAsciiLayer)
@@ -16,6 +18,7 @@ export function LayerPanel() {
     (state) => state.setImageLayerOpacity,
   )
   const moveLayer = useEditorStore((state) => state.moveLayer)
+  const reorderLayer = useEditorStore((state) => state.reorderLayer)
 
   const handleImageUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -31,14 +34,8 @@ export function LayerPanel() {
     const source = URL.createObjectURL(file)
     const image = new Image()
     image.onload = () => {
-      const fitScale = Math.min(
-        1,
-        960 / image.naturalWidth,
-        640 / image.naturalHeight,
-      )
       addImageLayer(image, {
         name: file.name.replace(/\.[^.]+$/, '').toUpperCase(),
-        scale: { x: fitScale, y: fitScale },
       })
       URL.revokeObjectURL(source)
       setUploadError('')
@@ -48,6 +45,26 @@ export function LayerPanel() {
       setUploadError('COULD NOT LOAD IMAGE')
     }
     image.src = source
+  }
+
+  const handleDragStart = (
+    event: DragEvent<HTMLSpanElement>,
+    layerId: string,
+  ) => {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', layerId)
+    setDraggedLayerId(layerId)
+  }
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>, targetLayerId: string) => {
+    event.preventDefault()
+    const sourceLayerId =
+      draggedLayerId || event.dataTransfer.getData('text/plain')
+    if (sourceLayerId) {
+      reorderLayer(sourceLayerId, targetLayerId)
+    }
+    setDraggedLayerId(null)
+    setDragTargetLayerId(null)
   }
 
   return (
@@ -89,20 +106,46 @@ export function LayerPanel() {
           {[...layers].reverse().map((layer) => (
             <div
               key={layer.id}
-              className={`border-2 border-black bg-white ${activeLayerId === layer.id ? 'shadow-[4px_4px_0_#000]' : ''}`}
+              onDragOver={(event) => {
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+                setDragTargetLayerId(layer.id)
+              }}
+              onDragLeave={() =>
+                setDragTargetLayerId((current) =>
+                  current === layer.id ? null : current,
+                )
+              }
+              onDrop={(event) => handleDrop(event, layer.id)}
+              className={`border-2 border-black bg-white ${activeLayerId === layer.id ? 'shadow-[4px_4px_0_#000]' : ''} ${dragTargetLayerId === layer.id && draggedLayerId !== layer.id ? 'outline-4 outline-offset-2 outline-black' : ''}`}
             >
-              <button
-                type="button"
-                onClick={() => setActiveLayer(layer.id)}
-                className={`flex w-full items-center gap-2 border-b-2 border-black px-2 py-2 text-left font-mono ${activeLayerId === layer.id ? 'bg-black text-white' : 'bg-white hover:bg-neutral-100'}`}
-              >
-                <span className="w-8 text-[9px] font-black">
-                  {layer.type === 'ascii' ? 'TXT' : 'IMG'}
+              <div className={`flex border-b-2 border-black font-mono ${activeLayerId === layer.id ? 'bg-black text-white' : 'bg-white'}`}>
+                <span
+                  draggable
+                  onDragStart={(event) => handleDragStart(event, layer.id)}
+                  onDragEnd={() => {
+                    setDraggedLayerId(null)
+                    setDragTargetLayerId(null)
+                  }}
+                  className="flex w-8 cursor-grab items-center justify-center border-r-2 border-black text-xs active:cursor-grabbing"
+                  aria-label={`Drag ${layer.name} to reorder`}
+                  title="Drag to reorder"
+                >
+                  ≡
                 </span>
-                <span className="min-w-0 flex-1 truncate text-[10px] font-bold tracking-wider">
-                  {layer.name}
-                </span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveLayer(layer.id)}
+                  className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left hover:bg-neutral-300 hover:text-black"
+                >
+                  <span className="w-8 text-[9px] font-black">
+                    {layer.type === 'ascii' ? 'TXT' : 'IMG'}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[10px] font-bold tracking-wider">
+                    {layer.name}
+                  </span>
+                </button>
+              </div>
               {layer.type === 'image' && (
                 <label className="flex items-center gap-2 border-b-2 border-black px-2 py-1 font-mono text-[9px] font-black">
                   OPACITY
@@ -158,7 +201,7 @@ export function LayerPanel() {
         </div>
       </div>
       <div className="border-t-2 border-black bg-white px-3 py-2 font-mono text-[9px] font-bold leading-relaxed tracking-wider">
-        STACK ORDER<br />TOP COMPOSITES LAST
+        DRAG HANDLE TO REORDER<br />TOP COMPOSITES LAST
       </div>
     </aside>
   )

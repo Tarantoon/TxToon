@@ -1,6 +1,6 @@
 import {
-  GRANULARITY_MAX,
-  GRANULARITY_MIN,
+  GRID_SIZE_MAX,
+  GRID_SIZE_MIN,
   useEditorStore,
 } from '../store/editorStore'
 
@@ -23,14 +23,50 @@ const CHARACTERS = [
   ' ',
 ]
 
+interface DimensionControlProps {
+  label: string
+  value: number
+  onChange: (value: number) => void
+  onStep: (delta: number) => void
+}
+
+function DimensionControl({
+  label,
+  value,
+  onChange,
+  onStep,
+}: DimensionControlProps) {
+  return (
+    <div className="grid grid-cols-[1fr_28px_58px_28px] items-center border-2 border-black bg-black font-mono text-[9px] font-black">
+      <span className="px-2 text-white">{label}</span>
+      <button type="button" onClick={() => onStep(-1)} className="h-8 border-l-2 border-black bg-white text-black hover:bg-neutral-300" aria-label={`Remove one ${label.toLowerCase()}`}>
+        −
+      </button>
+      <input
+        type="number"
+        min={GRID_SIZE_MIN}
+        max={GRID_SIZE_MAX}
+        value={value}
+        onChange={(event) => onChange(event.target.valueAsNumber)}
+        className="h-8 border-x-2 border-black bg-white text-center text-black outline-none focus:bg-neutral-200"
+        aria-label={`${label} count`}
+      />
+      <button type="button" onClick={() => onStep(1)} className="h-8 bg-white text-black hover:bg-neutral-300" aria-label={`Add one ${label.toLowerCase()}`}>
+        +
+      </button>
+    </div>
+  )
+}
+
 export function CharacterPalette() {
   const selectedCharacter = useEditorStore((state) => state.selectedCharacter)
-  const granularity = useEditorStore((state) => state.granularity)
+  const gridSize = useEditorStore((state) => state.gridSize)
   const showGrid = useEditorStore((state) => state.showGrid)
   const setSelectedCharacter = useEditorStore(
     (state) => state.setSelectedCharacter,
   )
-  const setGranularity = useEditorStore((state) => state.setGranularity)
+  const setGridSize = useEditorStore((state) => state.setGridSize)
+  const resizeGrid = useEditorStore((state) => state.resizeGrid)
   const setShowGrid = useEditorStore((state) => state.setShowGrid)
 
   return (
@@ -63,29 +99,29 @@ export function CharacterPalette() {
           ))}
         </div>
       </div>
-      <div className="flex flex-1 flex-col gap-4 bg-neutral-100 p-3">
-        <label className="flex flex-col gap-2 font-mono text-[10px] font-black tracking-widest">
-          <span className="flex justify-between">
-            GRANULARITY <b>{granularity} PX</b>
-          </span>
-          <input
-            type="range"
-            min={GRANULARITY_MIN}
-            max={GRANULARITY_MAX}
-            step="1"
-            value={granularity}
-            onChange={(event) => setGranularity(event.target.valueAsNumber)}
-            className="accent-black"
-          />
-          <span className="flex justify-between text-[9px] text-neutral-500">
-            <span>FINE</span>
-            <span>COARSE</span>
-          </span>
-        </label>
+      <div className="flex flex-1 flex-col gap-3 bg-neutral-100 p-3">
+        <div className="font-mono text-[10px] font-black tracking-widest">
+          GRID GRANULARITY
+        </div>
+        <DimensionControl
+          label="COLUMNS"
+          value={gridSize.columns}
+          onChange={(columns) => setGridSize({ ...gridSize, columns })}
+          onStep={(columns) => resizeGrid({ columns })}
+        />
+        <DimensionControl
+          label="ROWS"
+          value={gridSize.rows}
+          onChange={(rows) => setGridSize({ ...gridSize, rows })}
+          onStep={(rows) => resizeGrid({ rows })}
+        />
+        <p className="font-mono text-[8px] font-bold leading-relaxed tracking-wider text-neutral-500">
+          RESIZING PRESERVES ALL LAYER DATA
+        </p>
         <button
           type="button"
           onClick={() => setShowGrid(!showGrid)}
-          className={`border-2 border-black px-3 py-2 text-left font-mono text-[10px] font-black tracking-widest ${showGrid ? 'bg-black text-white' : 'bg-white text-black hover:bg-neutral-200'}`}
+          className={`mt-auto border-2 border-black px-3 py-2 text-left font-mono text-[10px] font-black tracking-widest ${showGrid ? 'bg-black text-white' : 'bg-white text-black hover:bg-neutral-200'}`}
           aria-pressed={showGrid}
         >
           GUIDE GRID: {showGrid ? 'ON' : 'OFF'}

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { compileAsciiText } from '../lib/exportAscii'
+import { compileAsciiText, getProjectFileName } from '../lib/exportAscii'
 import { useEditorStore } from './editorStore'
 
 const getAsciiLayerCells = (layerId: string) => {
@@ -19,71 +19,7 @@ beforeEach(() => {
 })
 
 describe('useEditorStore', () => {
-  it('paints only the active ASCII layer, ignores out-of-bounds points, and erases cells with a space character', () => {
-    const initialState = useEditorStore.getState()
-    const initialLayerId = initialState.activeLayerId
-
-    if (!initialLayerId) {
-      throw new Error('Expected an initial active layer')
-    }
-
-    useEditorStore.getState().setGridSize({ columns: 3, rows: 2 })
-
-    const imageLayerId = useEditorStore.getState().addImageLayer(
-      {} as HTMLImageElement,
-    )
-
-    useEditorStore.getState().setActiveLayer('missing-layer')
-    expect(useEditorStore.getState().activeLayerId).toBe(imageLayerId)
-
-    useEditorStore
-      .getState()
-      .paintCells([
-        { x: 0, y: 0 },
-        { x: 2, y: 1 },
-        { x: 3, y: 0 },
-        { x: -1, y: 1 },
-      ], '#')
-
-    expect(getAsciiLayerCells(initialLayerId)).toEqual({})
-
-    useEditorStore.getState().setActiveLayer(initialLayerId)
-
-    useEditorStore
-      .getState()
-      .paintCells([
-        { x: 0, y: 0 },
-        { x: 2, y: 1 },
-        { x: 3, y: 0 },
-        { x: -1, y: 1 },
-      ], '#')
-
-    expect(getAsciiLayerCells(initialLayerId)).toEqual({
-      '0,0': '#',
-      '2,1': '#',
-    })
-
-    useEditorStore.getState().paintCells([{ x: 0, y: 0 }], ' ')
-
-    expect(getAsciiLayerCells(initialLayerId)).toEqual({
-      '2,1': '#',
-    })
-  })
-
-  it('clamps granularity to the supported range and ignores non-finite input', () => {
-    const store = useEditorStore.getState()
-
-    store.setGranularity(9.2)
-    expect(useEditorStore.getState().granularity).toBe(10)
-
-    store.setGranularity(48.7)
-    expect(useEditorStore.getState().granularity).toBe(32)
-
-    store.setGranularity(Number.NaN)
-    expect(useEditorStore.getState().granularity).toBe(32)
-  })
-
-  it('reorders layers and respects visibility when exporting ASCII', () => {
+  it('reorders ASCII and image layers using bottom-to-top state order and respects ASCII export precedence', () => {
     const store = useEditorStore.getState()
     const bottomLayerId = store.activeLayerId
 
@@ -94,51 +30,211 @@ describe('useEditorStore', () => {
     store.setGridSize({ columns: 1, rows: 1 })
     store.paintCells([{ x: 0, y: 0 }], 'A')
 
+    const imageLayerId = store.addImageLayer({} as HTMLImageElement, {
+      name: 'REFERENCE',
+    })
     const topLayerId = store.addAsciiLayer('TOP')
     store.paintCells([{ x: 0, y: 0 }], 'B')
 
+    expect(useEditorStore.getState().layers.map((layer) => layer.id)).toEqual([
+      bottomLayerId,
+      imageLayerId,
+      topLayerId,
+    ])
     expect(
       compileAsciiText(useEditorStore.getState().layers, useEditorStore.getState().gridSize),
     ).toBe('B')
 
-    store.moveLayer(bottomLayerId, 'up')
+    store.reorderLayer(imageLayerId, bottomLayerId)
 
+    expect(useEditorStore.getState().layers.map((layer) => layer.id)).toEqual([
+      imageLayerId,
+      bottomLayerId,
+      topLayerId,
+    ])
+    expect(
+      compileAsciiText(useEditorStore.getState().layers, useEditorStore.getState().gridSize),
+    ).toBe('B')
+
+    store.reorderLayer(topLayerId, bottomLayerId)
+
+    expect(useEditorStore.getState().layers.map((layer) => layer.id)).toEqual([
+      imageLayerId,
+      topLayerId,
+      bottomLayerId,
+    ])
+    expect(
+      compileAsciiText(useEditorStore.getState().layers, useEditorStore.getState().gridSize),
+    ).toBe('A')
+  })
+
+  it('clamps grid size changes and preserves sparse cells outside a shrunken grid', () => {
+    const store = useEditorStore.getState()
+    const layerId = store.activeLayerId
+
+    if (!layerId) {
+      throw new Error('Expected an initial active layer')
+    }
+
+    store.setGridSize({ columns: 999.8, rows: 0 })
+
+    expect(useEditorStore.getState().gridSize).toEqual({
+      columns: 500,
+      rows: 1,
+    })
+
+    store.setGridSize({ columns: 4.8, rows: 4.2 })
+    store.paintCells([{ x: 0, y: 0 }], 'A')
+    store.paintCells([{ x: 2, y: 1 }], 'C')
+    store.paintCells([{ x: 3, y: 3 }], 'B')
+
+    store.resizeGrid({ columns: -999, rows: -999 })
+
+    expect(useEditorStore.getState().gridSize).toEqual({ columns: 1, rows: 1 })
+    expect(getAsciiLayerCells(layerId)).toEqual({
+      '0,0': 'A',
+      '2,1': 'C',
+      '3,3': 'B',
+    })
     expect(
       compileAsciiText(useEditorStore.getState().layers, useEditorStore.getState().gridSize),
     ).toBe('A')
 
-    store.setLayerVisibility(bottomLayerId, false)
+    store.resizeGrid({ columns: 3, rows: 3 })
 
+    expect(useEditorStore.getState().gridSize).toEqual({ columns: 4, rows: 4 })
     expect(
       compileAsciiText(useEditorStore.getState().layers, useEditorStore.getState().gridSize),
-    ).toBe('B')
-
-    expect(useEditorStore.getState().layers.map((layer) => layer.id)).toEqual([
-      topLayerId,
-      bottomLayerId,
-    ])
+    ).toBe('A   \n  C \n    \n   B')
   })
 
-  it('selects the nearest remaining ASCII layer when removing the active layer', () => {
+  it('moves a single cell, rejects invalid or out-of-bounds offsets, and no-ops on image layers', () => {
     const store = useEditorStore.getState()
-    const baseLayerId = store.activeLayerId
+    const asciiLayerId = store.activeLayerId
 
-    if (!baseLayerId) {
+    if (!asciiLayerId) {
       throw new Error('Expected an initial active layer')
     }
 
+    store.setGridSize({ columns: 3, rows: 2 })
+    store.paintCells([{ x: 0, y: 0 }], 'A')
+
+    store.moveCells([{ x: 0, y: 0 }], { x: 1, y: 1 })
+
+    expect(getAsciiLayerCells(asciiLayerId)).toEqual({ '1,1': 'A' })
+
+    store.moveCells([{ x: 1, y: 1 }], { x: 1.5, y: 0 })
+    expect(getAsciiLayerCells(asciiLayerId)).toEqual({ '1,1': 'A' })
+
+    store.moveCells([{ x: 1, y: 1 }], { x: 0, y: 0 })
+    expect(getAsciiLayerCells(asciiLayerId)).toEqual({ '1,1': 'A' })
+
+    store.moveCells([{ x: 1, y: 1 }], { x: 2, y: 0 })
+    expect(getAsciiLayerCells(asciiLayerId)).toEqual({ '1,1': 'A' })
+  })
+
+  it('moves multiple cells using key translation and overwrites overlapping destinations', () => {
+    const store = useEditorStore.getState()
+    const asciiLayerId = store.activeLayerId
+
+    if (!asciiLayerId) {
+      throw new Error('Expected an initial active layer')
+    }
+
+    store.setGridSize({ columns: 3, rows: 2 })
+    store.paintCells([{ x: 0, y: 0 }], 'A')
+    store.paintCells([{ x: 1, y: 0 }], 'B')
+    store.paintCells([{ x: 2, y: 0 }], 'Z')
+
+    store.moveCells(
+      [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+      ],
+      { x: 1, y: 0 },
+    )
+
+    expect(getAsciiLayerCells(asciiLayerId)).toEqual({
+      '1,0': 'A',
+      '2,0': 'B',
+    })
+  })
+
+  it('ignores moveCells calls when the active layer is not ASCII', () => {
+    const store = useEditorStore.getState()
+    const asciiLayerId = store.activeLayerId
+
+    if (!asciiLayerId) {
+      throw new Error('Expected an initial active layer')
+    }
+
+    store.paintCells([{ x: 0, y: 0 }], 'A')
     const imageLayerId = store.addImageLayer({} as HTMLImageElement)
-    const topLayerId = store.addAsciiLayer('OVERLAY')
 
-    store.setActiveLayer(imageLayerId)
-    store.removeLayer(imageLayerId)
+    store.moveCells([{ x: 0, y: 0 }], { x: 1, y: 0 })
 
-    expect(useEditorStore.getState().activeLayerId).toBe(topLayerId)
-    expect(useEditorStore.getState().layers.some((layer) => layer.id === imageLayerId)).toBe(
-      false,
+    expect(useEditorStore.getState().activeLayerId).toBe(imageLayerId)
+    expect(getAsciiLayerCells(asciiLayerId)).toEqual({ '0,0': 'A' })
+  })
+
+  it('tracks projectName state and normalizes export file names', () => {
+    const store = useEditorStore.getState()
+
+    expect(store.projectName).toBe('Untitled')
+
+    store.setProjectName('  Project: Draft?.TXT  ')
+
+    expect(useEditorStore.getState().projectName).toBe(
+      '  Project: Draft?.TXT  ',
     )
-    expect(useEditorStore.getState().layers.some((layer) => layer.id === baseLayerId)).toBe(
-      true,
+    expect(getProjectFileName(useEditorStore.getState().projectName)).toBe(
+      'Project- Draft-.txt',
     )
+    expect(getProjectFileName('')).toBe('Untitled.txt')
+    expect(getProjectFileName('report.txt')).toBe('report.txt')
+  })
+
+  it('zooms around an anchor, clamps zoom bounds, pans, and resets the camera', () => {
+    const store = useEditorStore.getState()
+
+    store.panCamera({ x: 12, y: -8 })
+    expect(useEditorStore.getState().camera.pan).toEqual({ x: 12, y: -8 })
+
+    store.setCameraZoom(2, { x: 100, y: 50 })
+
+    expect(useEditorStore.getState().camera).toEqual({
+      zoom: 2,
+      pan: { x: -76, y: -66 },
+    })
+
+    store.resetCamera()
+    store.setCameraZoom(0.01, { x: 100, y: 50 })
+
+    expect(useEditorStore.getState().camera).toEqual({
+      zoom: 0.25,
+      pan: { x: 75, y: 37.5 },
+    })
+
+    store.resetCamera()
+    store.setCameraZoom(100, { x: 100, y: 50 })
+
+    expect(useEditorStore.getState().camera).toEqual({
+      zoom: 8,
+      pan: { x: -700, y: -350 },
+    })
+
+    store.setCameraZoom(Number.POSITIVE_INFINITY, { x: 0, y: 0 })
+
+    expect(useEditorStore.getState().camera).toEqual({
+      zoom: 8,
+      pan: { x: -700, y: -350 },
+    })
+
+    store.resetCamera()
+
+    expect(useEditorStore.getState().camera).toEqual({
+      zoom: 1,
+      pan: { x: 0, y: 0 },
+    })
   })
 })

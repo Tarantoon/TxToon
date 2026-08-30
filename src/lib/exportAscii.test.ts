@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { compileAsciiText, downloadAsciiText } from './exportAscii'
+import {
+  compileAsciiText,
+  downloadAsciiText,
+  getProjectFileName,
+} from './exportAscii'
 import type { EditorLayer } from '../types/editor'
 
 const createAsciiLayer = (
@@ -75,6 +79,13 @@ describe('downloadAsciiText', () => {
     const append = vi.fn()
     const click = vi.fn()
     const remove = vi.fn()
+    const createdLinks: Array<{
+      href: string
+      download: string
+      style: { display?: string }
+      click: () => void
+      remove: () => void
+    }> = []
     const createdBlobs: { parts: BlobPart[]; options?: BlobPropertyBag }[] = []
 
     class MockBlob {
@@ -90,25 +101,33 @@ describe('downloadAsciiText', () => {
     } as unknown as typeof URL)
     vi.stubGlobal('document', {
       body: { append },
-      createElement: () => ({
-        href: '',
-        download: '',
-        style: {},
-        click,
-        remove,
-      }),
+      createElement: () => {
+        const link = {
+          href: '',
+          download: '',
+          style: {},
+          click,
+          remove,
+        }
+        createdLinks.push(link)
+        return link
+      },
     } as unknown as typeof document)
 
     downloadAsciiText('hello', 'export')
+    downloadAsciiText('world', 'CON')
 
     expect(createdBlobs).toEqual([
       { parts: ['hello'], options: { type: 'text/plain;charset=utf-8' } },
+      { parts: ['world'], options: { type: 'text/plain;charset=utf-8' } },
     ])
-    expect(createObjectURL).toHaveBeenCalledTimes(1)
-    expect(append).toHaveBeenCalledTimes(1)
-    expect(click).toHaveBeenCalledTimes(1)
-    expect(remove).toHaveBeenCalledTimes(1)
-    expect(revokeObjectURL).toHaveBeenCalledWith('blob:download-url')
+    expect(createObjectURL).toHaveBeenCalledTimes(2)
+    expect(append).toHaveBeenCalledTimes(2)
+    expect(click).toHaveBeenCalledTimes(2)
+    expect(remove).toHaveBeenCalledTimes(2)
+    expect(revokeObjectURL).toHaveBeenCalledTimes(2)
+    expect(revokeObjectURL).toHaveBeenNthCalledWith(1, 'blob:download-url')
+    expect(revokeObjectURL).toHaveBeenNthCalledWith(2, 'blob:download-url')
 
     const link = append.mock.calls[0][0] as {
       href: string
@@ -116,8 +135,20 @@ describe('downloadAsciiText', () => {
       style: { display?: string }
     }
 
+    expect(createdLinks[1].download).toBe('CON-.txt')
     expect(link.href).toBe('blob:download-url')
     expect(link.download).toBe('export.txt')
     expect(link.style.display).toBe('none')
+  })
+})
+
+describe('getProjectFileName', () => {
+  it('sanitizes invalid characters, trims existing extensions, and falls back to Untitled', () => {
+    expect(getProjectFileName('  My:Project?.TXT  ')).toBe('My-Project-.txt')
+    expect(getProjectFileName(' report.txt ')).toBe('report.txt')
+    expect(getProjectFileName('   ')).toBe('Untitled.txt')
+    expect(getProjectFileName('Ends with dot. ')).toBe('Ends with dot.txt')
+    expect(getProjectFileName('CON')).toBe('CON-.txt')
+    expect(getProjectFileName('com1.txt')).toBe('com1-.txt')
   })
 })

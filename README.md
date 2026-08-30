@@ -31,3 +31,13 @@ bun run build
 - `src/lib/renderCanvasFrame.ts` composites visible image and ASCII layers.
 - `src/lib/exportAscii.ts` compiles visible ASCII layers and downloads TXT files.
 - `src/lib/canvasGrid.ts` provides grid metrics and drag interpolation.
+
+## Editor Controls
+
+- Left-drag paints the active glyph.
+- Right-drag an existing glyph or selection to move it.
+- Right-drag empty canvas space to create a multi-glyph selection.
+- Middle-drag or Alt-drag pans the viewport.
+- Mouse wheel or workspace buttons control visual zoom.
+- Layer drag handles update bottom-to-top compositing order.
+- Column and row controls resize the export grid without deleting layer data.
