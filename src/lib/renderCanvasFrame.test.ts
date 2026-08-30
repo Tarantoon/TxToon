@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { renderCanvasFrame } from './renderCanvasFrame'
-import type { EditorLayer } from '../types/editor'
+import type { EditorLayer, ImageLayer } from '../types/editor'
+import { getGridMetrics } from './canvasGrid'
 
 const createContextMock = () => {
   const operations: string[] = []
@@ -103,53 +104,109 @@ const createImageLayer = (id: string): EditorLayer => ({
 })
 
 describe('renderCanvasFrame', () => {
-  it('translates and scales the camera, clips the viewport, draws layers bottom-to-top, and renders selection overlays', () => {
+  it('offsets page, ASCII, grid, and image drawing by the grid origin, clips to the project bounds, and renders the active image outline and resize handle', () => {
     const context = createContextMock()
+    const viewport = { width: 400, height: 400 }
+    const gridSize = { columns: 10, rows: 10 }
+    const metrics = getGridMetrics(gridSize, viewport)
+    const activeImageLayer = createImageLayer('reference') as ImageLayer
 
     renderCanvasFrame({
       context,
       layersBottomToTop: [
-        createAsciiLayer('bottom', { '0,0': 'B' }),
-        createImageLayer('reference'),
-        createAsciiLayer('top', { '0,0': 'T' }),
+        createAsciiLayer('bottom', { '0,0': 'B', '99,99': 'X' }),
+        activeImageLayer,
+        createAsciiLayer('top', { '1,1': 'T' }),
       ],
-      gridSize: { columns: 2, rows: 2 },
-      viewport: { width: 120, height: 80 },
-      metrics: { fontSize: 18, cellWidth: 10, cellHeight: 20 },
+      gridSize,
+      viewport,
+      metrics,
       showGrid: true,
       pixelRatio: 2,
-      camera: { zoom: 2, pan: { x: 12, y: 6 } },
-      selection: {
-        cells: [{ point: { x: 1, y: 1 }, character: 'M' }],
-        moveOffset: { x: 1, y: 0 },
-        marquee: { start: { x: 0, y: 0 }, end: { x: 1, y: 1 } },
-      },
+      camera: { zoom: 1.5, pan: { x: 12, y: -8 } },
+      activeImageLayerId: activeImageLayer.id,
     })
 
     expect(context.setTransform).toHaveBeenCalledWith(2, 0, 0, 2, 0, 0)
-    expect(context.translate).toHaveBeenCalledWith(12, 6)
-    expect(context.scale).toHaveBeenCalledWith(2, 2)
+    expect(context.translate).toHaveBeenCalledWith(12, -8)
+    expect(context.scale).toHaveBeenCalledWith(1.5, 1.5)
+    expect(context.clearRect).toHaveBeenCalledWith(0, 0, 400, 400)
+    expect(context.fillRect).toHaveBeenCalledWith(0, 0, 400, 400)
+    expect(context.fillRect).toHaveBeenCalledWith(
+      metrics.origin.x,
+      metrics.origin.y,
+      metrics.projectWidth,
+      metrics.projectHeight,
+    )
     expect(context.clip).toHaveBeenCalledTimes(1)
     expect(context.drawImage).toHaveBeenCalledWith(
-      expect.objectContaining({ complete: true, naturalWidth: 40, naturalHeight: 20 }),
-      5,
-      7,
+      expect.objectContaining({
+        complete: true,
+        naturalWidth: 40,
+        naturalHeight: 20,
+      }),
+      metrics.origin.x + activeImageLayer.position.x,
+      metrics.origin.y + activeImageLayer.position.y,
       80,
       60,
     )
-    expect(context.fillText).toHaveBeenNthCalledWith(1, 'B', 5, 10)
-    expect(context.fillText).toHaveBeenNthCalledWith(2, 'T', 5, 10)
-    expect(context.fillText).toHaveBeenNthCalledWith(3, 'M', 25, 30)
-    expect(context.fillRect).toHaveBeenCalledWith(10, 20, 10, 20)
-    expect(context.fillRect).toHaveBeenCalledWith(20, 20, 10, 20)
-    expect(context.strokeRect).toHaveBeenCalledWith(10, 20, 10, 20)
-    expect(context.strokeRect).toHaveBeenCalledWith(0, 0, 20, 40)
-    expect(context.setLineDash).toHaveBeenCalledWith([3, 2])
+    const fillTextMock = context.fillText as unknown as {
+      mock: { calls: Array<[string, number, number, number?]> }
+    }
+    const firstFillTextCall = fillTextMock.mock.calls[0]
+    const secondFillTextCall = fillTextMock.mock.calls[1]
+
+    expect(firstFillTextCall[0]).toBe('B')
+    expect(firstFillTextCall[1]).toBeCloseTo(
+      metrics.origin.x + metrics.cellWidth / 2,
+      6,
+    )
+    expect(firstFillTextCall[2]).toBeCloseTo(
+      metrics.origin.y + metrics.cellHeight / 2,
+      6,
+    )
+    expect(secondFillTextCall[0]).toBe('T')
+    expect(secondFillTextCall[1]).toBeCloseTo(
+      metrics.origin.x + metrics.cellWidth * 1.5,
+      6,
+    )
+    expect(secondFillTextCall[2]).toBeCloseTo(
+      metrics.origin.y + metrics.cellHeight * 1.5,
+      6,
+    )
+    expect(context.fillText).toHaveBeenCalledTimes(2)
+    expect(context.beginPath).toHaveBeenCalledTimes(2)
+    expect(context.rect).toHaveBeenCalledWith(
+      metrics.origin.x,
+      metrics.origin.y,
+      metrics.projectWidth,
+      metrics.projectHeight,
+    )
+    expect(context.moveTo).toHaveBeenCalledWith(metrics.origin.x, metrics.origin.y)
+    expect(context.lineTo).toHaveBeenCalledWith(
+      metrics.origin.x,
+      metrics.origin.y + metrics.projectHeight,
+    )
+    expect(context.moveTo).toHaveBeenCalledWith(metrics.origin.x, metrics.origin.y)
+    expect(context.lineWidth).toBeCloseTo(2 / 1.5)
+    expect(context.strokeRect).toHaveBeenCalledWith(
+      metrics.origin.x + activeImageLayer.position.x,
+      metrics.origin.y + activeImageLayer.position.y,
+      80,
+      60,
+    )
+    expect(context.strokeRect).toHaveBeenCalledWith(
+      metrics.origin.x + activeImageLayer.position.x + 80 - 10 / 1.5 / 2,
+      metrics.origin.y + activeImageLayer.position.y + 60 - 10 / 1.5 / 2,
+      10 / 1.5,
+      10 / 1.5,
+    )
+    expect(context.setLineDash).toHaveBeenCalledWith([5 / 1.5, 3 / 1.5])
     expect(context.setLineDash).toHaveBeenLastCalledWith([])
 
     const clipIndex = context.operations.indexOf('clip')
-    const translateIndex = context.operations.indexOf('translate:12,6')
-    const scaleIndex = context.operations.indexOf('scale:2,2')
+    const translateIndex = context.operations.indexOf('translate:12,-8')
+    const scaleIndex = context.operations.indexOf('scale:1.5,1.5')
 
     expect(clipIndex).toBeGreaterThan(-1)
     expect(translateIndex).toBeGreaterThan(-1)
@@ -157,21 +214,25 @@ describe('renderCanvasFrame', () => {
     expect(clipIndex).toBeGreaterThan(translateIndex)
     expect(clipIndex).toBeGreaterThan(scaleIndex)
 
-    const bottomFillTextIndex = context.operations.indexOf('fillText:B:5:10')
+    const bottomFillTextIndex = context.operations.findIndex((entry) =>
+      entry.startsWith('fillText:B:'),
+    )
     const imageDrawIndex = context.operations.indexOf('drawImage')
-    const topFillTextIndex = context.operations.indexOf('fillText:T:5:10')
-    const selectionFillTextIndex = context.operations.indexOf('fillText:M:25:30')
+    const topFillTextIndex = context.operations.findIndex((entry) =>
+      entry.startsWith('fillText:T:'),
+    )
 
     expect(bottomFillTextIndex).toBeGreaterThan(-1)
     expect(imageDrawIndex).toBeGreaterThan(bottomFillTextIndex)
     expect(topFillTextIndex).toBeGreaterThan(imageDrawIndex)
-    expect(selectionFillTextIndex).toBeGreaterThan(topFillTextIndex)
-    expect(context.beginPath).toHaveBeenCalledTimes(2)
     expect(context.stroke).toHaveBeenCalledTimes(1)
   })
 
   it('skips hidden layers and the optional grid when disabled', () => {
     const context = createContextMock()
+    const viewport = { width: 120, height: 80 }
+    const gridSize = { columns: 2, rows: 2 }
+    const metrics = getGridMetrics(gridSize, viewport)
 
     renderCanvasFrame({
       context,
@@ -179,9 +240,9 @@ describe('renderCanvasFrame', () => {
         createAsciiLayer('visible', { '0,0': 'A' }),
         createAsciiLayer('hidden', { '0,0': 'H' }, false),
       ],
-      gridSize: { columns: 1, rows: 1 },
-      viewport: { width: 10, height: 10 },
-      metrics: { fontSize: 12, cellWidth: 10, cellHeight: 10 },
+      gridSize,
+      viewport,
+      metrics,
       showGrid: false,
       pixelRatio: 1,
       camera: { zoom: 1, pan: { x: 0, y: 0 } },

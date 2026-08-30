@@ -11,12 +11,15 @@ import type {
   ImageLayerOptions,
   LayerId,
   Point,
+  Scale,
 } from '../types/editor'
 
 export const GRID_SIZE_MIN = 1
 export const GRID_SIZE_MAX = 500
 export const CAMERA_ZOOM_MIN = 0.25
 export const CAMERA_ZOOM_MAX = 8
+export const IMAGE_SCALE_MIN = 0.01
+export const IMAGE_SCALE_MAX = 100
 export const DEFAULT_GRID_SIZE: GridSize = { columns: 120, rows: 80 }
 
 const createLayerId = (): LayerId =>
@@ -36,8 +39,22 @@ const clamp = (value: number, minimum: number, maximum: number): number =>
 
 const normalizeScale = (value: number | undefined): number =>
   typeof value === 'number' && Number.isFinite(value)
-    ? Math.max(value, 0.01)
+    ? clamp(value, IMAGE_SCALE_MIN, IMAGE_SCALE_MAX)
     : 1
+
+const normalizePoint = (point: Point, fallback: Point): Point => ({
+  x: Number.isFinite(point.x) ? point.x : fallback.x,
+  y: Number.isFinite(point.y) ? point.y : fallback.y,
+})
+
+const normalizeImageScale = (scale: Scale, fallback: Scale): Scale => ({
+  x: Number.isFinite(scale.x)
+    ? clamp(scale.x, IMAGE_SCALE_MIN, IMAGE_SCALE_MAX)
+    : fallback.x,
+  y: Number.isFinite(scale.y)
+    ? clamp(scale.y, IMAGE_SCALE_MIN, IMAGE_SCALE_MAX)
+    : fallback.y,
+})
 
 const normalizeCharacter = (value: string): string | null => {
   const character = Array.from(value)[0]
@@ -114,7 +131,7 @@ export const useEditorStore = create<EditorStore>()((set) => ({
       name: options.name?.trim() || 'REFERENCE',
       visible: true,
       image,
-      position: options.position ?? { x: 0, y: 0 },
+      position: normalizePoint(options.position ?? { x: 0, y: 0 }, { x: 0, y: 0 }),
       scale: {
         x: normalizeScale(options.scale?.x),
         y: normalizeScale(options.scale?.y),
@@ -183,6 +200,38 @@ export const useEditorStore = create<EditorStore>()((set) => ({
       return {
         layers: state.layers.map((candidate) =>
           candidate.id === layerId ? { ...candidate, opacity: nextOpacity } : candidate,
+        ),
+      }
+    })
+  },
+
+  setImageLayerTransform: (layerId, position, scale) => {
+    set((state) => {
+      const layer = state.layers.find((candidate) => candidate.id === layerId)
+      if (layer?.type !== 'image') {
+        return state
+      }
+
+      const nextPosition = normalizePoint(position, layer.position)
+      const nextScale = normalizeImageScale(scale, layer.scale)
+      if (
+        nextPosition.x === layer.position.x &&
+        nextPosition.y === layer.position.y &&
+        nextScale.x === layer.scale.x &&
+        nextScale.y === layer.scale.y
+      ) {
+        return state
+      }
+
+      return {
+        layers: state.layers.map((candidate) =>
+          candidate.id === layerId
+            ? {
+                ...layer,
+                position: nextPosition,
+                scale: nextScale,
+              }
+            : candidate,
         ),
       }
     })

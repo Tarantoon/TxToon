@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CELL_WIDTH_TO_HEIGHT_RATIO,
   clampGridMoveOffset,
+  MAX_CELL_HEIGHT,
   getGridMetrics,
   getGridPointFromScreen,
   interpolateGridPoints,
@@ -58,30 +60,62 @@ describe('interpolateGridPoints', () => {
 })
 
 describe('getGridMetrics', () => {
-  it('derives independent cell width and height from the viewport and grid size', () => {
-    expect(
-      getGridMetrics({ columns: 4, rows: 2 }, { width: 100, height: 80 }),
-    ).toMatchObject({
-      cellWidth: 25,
-      cellHeight: 40,
-    })
+  it('centers a 10x10 grid at the maximum cell height with blank margins and the strict width-to-height ratio', () => {
+    const metrics = getGridMetrics(
+      { columns: 10, rows: 10 },
+      { width: 400, height: 400 },
+    )
 
-    expect(
-      getGridMetrics({ columns: 4, rows: 2 }, { width: 100, height: 80 }).fontSize,
-    ).toBeCloseTo(31.2)
+    expect(metrics.cellHeight).toBe(MAX_CELL_HEIGHT)
+    expect(metrics.cellWidth / metrics.cellHeight).toBeCloseTo(
+      CELL_WIDTH_TO_HEIGHT_RATIO,
+    )
+    expect(metrics.projectWidth).toBeCloseTo(168)
+    expect(metrics.projectHeight).toBeCloseTo(280)
+    expect(metrics.origin).toEqual({ x: 116, y: 60 })
+    expect(metrics.fontSize).toBe(MAX_CELL_HEIGHT)
+  })
+
+  it('proportionally fits a 100x100 grid within the workspace margins', () => {
+    const metrics = getGridMetrics(
+      { columns: 100, rows: 100 },
+      { width: 500, height: 500 },
+    )
+
+    expect(metrics.cellWidth / metrics.cellHeight).toBeCloseTo(
+      CELL_WIDTH_TO_HEIGHT_RATIO,
+    )
+    expect(metrics.projectWidth).toBeCloseTo(266.4)
+    expect(metrics.projectHeight).toBeCloseTo(444)
+    expect(metrics.origin.x).toBeCloseTo(116.8)
+    expect(metrics.origin.y).toBeCloseTo(28, 6)
+    expect(metrics.origin.x).toBeGreaterThanOrEqual(28)
+    expect(metrics.origin.y).toBeGreaterThanOrEqual(27.99)
+    expect(metrics.origin.x + metrics.projectWidth).toBeLessThanOrEqual(472)
+    expect(metrics.origin.y + metrics.projectHeight).toBeLessThanOrEqual(472)
   })
 })
 
 describe('getGridPointFromScreen', () => {
-  it('maps screen coordinates back through pan and zoom into grid coordinates', () => {
-    expect(
-      getGridPointFromScreen(
-        { x: 30, y: 60 },
-        { zoom: 2, pan: { x: 10, y: 20 } },
-        { cellWidth: 5, cellHeight: 10, fontSize: 12 },
-        { columns: 10, rows: 10 },
-      ),
-    ).toEqual({ x: 2, y: 2 })
+  it('inverts centered origin, camera pan, and zoom back to grid coordinates', () => {
+    const gridSize = { columns: 10, rows: 10 }
+    const metrics = getGridMetrics(gridSize, { width: 400, height: 400 })
+    const camera = { zoom: 1.5, pan: { x: 18, y: -12 } }
+    const targetPoint = { x: 3, y: 4 }
+    const screenPoint = {
+      x:
+        camera.pan.x +
+        camera.zoom *
+          (metrics.origin.x + targetPoint.x * metrics.cellWidth + metrics.cellWidth * 0.25),
+      y:
+        camera.pan.y +
+        camera.zoom *
+          (metrics.origin.y + targetPoint.y * metrics.cellHeight + metrics.cellHeight * 0.5),
+    }
+
+    expect(getGridPointFromScreen(screenPoint, camera, metrics, gridSize)).toEqual(
+      targetPoint,
+    )
   })
 
   it('clamps out-of-bounds screen points when requested', () => {
@@ -89,7 +123,15 @@ describe('getGridPointFromScreen', () => {
       getGridPointFromScreen(
         { x: -100, y: 999 },
         { zoom: 1, pan: { x: 0, y: 0 } },
-        { cellWidth: 10, cellHeight: 10, fontSize: 12 },
+        {
+          cellWidth: 10,
+          cellHeight: 10,
+          fontSize: 12,
+          origin: { x: 0, y: 0 },
+          projectWidth: 40,
+          projectHeight: 30,
+          fitScale: 1,
+        },
         { columns: 4, rows: 3 },
         true,
       ),

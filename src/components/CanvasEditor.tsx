@@ -11,6 +11,7 @@ import {
   getGridBounds,
   getGridMetrics,
   getGridPointFromScreen,
+  getProjectPointFromScreen,
   interpolateGridPoints,
   parseGridCellKey,
 } from '../lib/canvasGrid'
@@ -19,6 +20,7 @@ import { useEditorStore } from '../store/editorStore'
 import type {
   GridCellKey,
   Point,
+  Scale,
   ViewportSize,
 } from '../types/editor'
 
@@ -43,11 +45,46 @@ type CanvasInteraction =
       points: Point[]
       offset: Point
     }
+  | {
+      type: 'image-move'
+      pointerId: number
+      layerId: string
+      start: Point
+      initialPosition: Point
+      initialScale: Scale
+    }
+  | {
+      type: 'image-scale'
+      pointerId: number
+      layerId: string
+      start: Point
+      handleVector: Point
+      initialPosition: Point
+      initialScale: Scale
+    }
 
 const getCellKey = ({ x, y }: Point): GridCellKey => `${x},${y}`
 
 const pointsMatch = (first: Point, second: Point): boolean =>
   first.x === second.x && first.y === second.y
+
+const isPointInsideBounds = (
+  point: Point,
+  position: Point,
+  width: number,
+  height: number,
+): boolean =>
+  point.x >= position.x &&
+  point.y >= position.y &&
+  point.x <= position.x + width &&
+  point.y <= position.y + height
+
+const blurActiveElement = (): void => {
+  const activeElement = document.activeElement
+  if (activeElement instanceof HTMLElement && activeElement !== document.body) {
+    activeElement.blur()
+  }
+}
 
 export function CanvasEditor() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -65,10 +102,14 @@ export function CanvasEditor() {
   const camera = useEditorStore((state) => state.camera)
   const paintCells = useEditorStore((state) => state.paintCells)
   const moveCells = useEditorStore((state) => state.moveCells)
+  const setImageLayerTransform = useEditorStore(
+    (state) => state.setImageLayerTransform,
+  )
   const setCameraZoom = useEditorStore((state) => state.setCameraZoom)
   const panCamera = useEditorStore((state) => state.panCamera)
   const resetCamera = useEditorStore((state) => state.resetCamera)
   const activeLayer = layers.find((layer) => layer.id === activeLayerId)
+  const activeImageLayerId = activeLayer?.type === 'image' ? activeLayer.id : null
   const metrics = getGridMetrics(gridSize, viewport)
   const activeSelectedPoints =
     selectionLayerId === activeLayerId
@@ -93,6 +134,7 @@ export function CanvasEditor() {
     viewport,
     camera,
     selection,
+    activeImageLayerId,
   })
 
   useEffect(() => {
@@ -127,6 +169,7 @@ export function CanvasEditor() {
       viewport,
       camera,
       selection,
+      activeImageLayerId,
     }
   })
 
@@ -165,6 +208,7 @@ export function CanvasEditor() {
         pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
         camera: current.camera,
         selection: current.selection,
+        activeImageLayerId: current.activeImageLayerId,
       })
 
       frameId = window.requestAnimationFrame(renderFrame)
@@ -206,6 +250,21 @@ export function CanvasEditor() {
       : null
   }
 
+  const getPointerProjectPoint = (
+    event: ReactPointerEvent<HTMLCanvasElement>,
+  ): Point | null => {
+    const screenPoint = getScreenPoint(event)
+    if (!screenPoint) {
+      return null
+    }
+
+    const projectPoint = getProjectPointFromScreen(screenPoint, camera, metrics)
+    return {
+      x: projectPoint.x / metrics.fitScale,
+      y: projectPoint.y / metrics.fitScale,
+    }
+  }
+
   const capturePointer = (
     event: ReactPointerEvent<HTMLCanvasElement>,
     interaction: CanvasInteraction,
@@ -216,6 +275,7 @@ export function CanvasEditor() {
   }
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    blurActiveElement()
     if (interactionRef.current) {
       return
     }
@@ -227,6 +287,74 @@ export function CanvasEditor() {
           type: 'pan',
           pointerId: event.pointerId,
           lastScreenPoint: screenPoint,
+        })
+      }
+      return
+    }
+
+    if (activeLayer?.type === 'image') {
+      if (
+        event.button !== 0 ||
+        !activeLayer.visible ||
+        !activeLayer.image.complete ||
+        activeLayer.image.naturalWidth <= 0
+      ) {
+        return
+      }
+
+      const point = getPointerProjectPoint(event)
+      if (!point) {
+        return
+      }
+
+      const imageWidth =
+        activeLayer.image.naturalWidth * activeLayer.scale.x
+      const imageHeight =
+        activeLayer.image.naturalHeight * activeLayer.scale.y
+      const resizeHandle = {
+        x: activeLayer.position.x + imageWidth,
+        y: activeLayer.position.y + imageHeight,
+      }
+      const resizeHandleRadius = 8 / (camera.zoom * metrics.fitScale)
+      const isResizeHandle =
+        Math.hypot(
+          point.x - resizeHandle.x,
+          point.y - resizeHandle.y,
+        ) <= resizeHandleRadius
+
+      setSelectedPoints([])
+      setSelectionLayerId(null)
+      setMarquee(null)
+      setMoveOffset({ x: 0, y: 0 })
+
+      if (isResizeHandle) {
+        capturePointer(event, {
+          type: 'image-scale',
+          pointerId: event.pointerId,
+          layerId: activeLayer.id,
+          start: point,
+          handleVector: { x: imageWidth, y: imageHeight },
+          initialPosition: { ...activeLayer.position },
+          initialScale: { ...activeLayer.scale },
+        })
+        return
+      }
+
+      if (
+        isPointInsideBounds(
+          point,
+          activeLayer.position,
+          imageWidth,
+          imageHeight,
+        )
+      ) {
+        capturePointer(event, {
+          type: 'image-move',
+          pointerId: event.pointerId,
+          layerId: activeLayer.id,
+          start: point,
+          initialPosition: { ...activeLayer.position },
+          initialScale: { ...activeLayer.scale },
         })
       }
       return
@@ -311,6 +439,49 @@ export function CanvasEditor() {
       return
     }
 
+    if (
+      interaction.type === 'image-move' ||
+      interaction.type === 'image-scale'
+    ) {
+      const point = getPointerProjectPoint(event)
+      if (!point) {
+        return
+      }
+
+      if (interaction.type === 'image-move') {
+        setImageLayerTransform(
+          interaction.layerId,
+          {
+            x: interaction.initialPosition.x + point.x - interaction.start.x,
+            y: interaction.initialPosition.y + point.y - interaction.start.y,
+          },
+          interaction.initialScale,
+        )
+        return
+      }
+
+      const pointerDelta = {
+        x: point.x - interaction.start.x,
+        y: point.y - interaction.start.y,
+      }
+      const handleLengthSquared =
+        interaction.handleVector.x ** 2 + interaction.handleVector.y ** 2
+      const scaleFactor =
+        1 +
+        (pointerDelta.x * interaction.handleVector.x +
+          pointerDelta.y * interaction.handleVector.y) /
+          Math.max(handleLengthSquared, 1)
+      setImageLayerTransform(
+        interaction.layerId,
+        interaction.initialPosition,
+        {
+          x: interaction.initialScale.x * scaleFactor,
+          y: interaction.initialScale.y * scaleFactor,
+        },
+      )
+      return
+    }
+
     const point = getPointerGridPoint(
       event,
       interaction.type === 'marquee' || interaction.type === 'move',
@@ -345,6 +516,19 @@ export function CanvasEditor() {
     setMoveOffset(offset)
   }
 
+  const restoreImageTransform = (interaction: CanvasInteraction) => {
+    if (
+      interaction.type === 'image-move' ||
+      interaction.type === 'image-scale'
+    ) {
+      setImageLayerTransform(
+        interaction.layerId,
+        interaction.initialPosition,
+        interaction.initialScale,
+      )
+    }
+  }
+
   const finishInteraction = (
     event: ReactPointerEvent<HTMLCanvasElement>,
     shouldCommit: boolean,
@@ -352,6 +536,10 @@ export function CanvasEditor() {
     const interaction = interactionRef.current
     if (!interaction || interaction.pointerId !== event.pointerId) {
       return
+    }
+
+    if (!shouldCommit) {
+      restoreImageTransform(interaction)
     }
 
     if (shouldCommit && interaction.type === 'marquee') {
@@ -431,18 +619,20 @@ export function CanvasEditor() {
       </div>
       <div
         ref={containerRef}
-        className="relative min-h-0 flex-1 overflow-hidden bg-neutral-300 p-3 sm:p-5"
+        className="relative min-h-0 flex-1 overflow-hidden bg-neutral-300"
       >
         <canvas
           ref={canvasRef}
-          className={`block h-full w-full border-2 border-black bg-neutral-300 shadow-[6px_6px_0_rgba(0,0,0,0.35)] ${activeLayer?.type === 'ascii' ? 'cursor-crosshair' : 'cursor-grab'}`}
+          className={`block h-full w-full bg-neutral-300 ${activeLayer?.type === 'ascii' ? 'cursor-crosshair' : activeLayer?.type === 'image' ? 'cursor-move' : 'cursor-grab'}`}
           aria-label="TxToon ASCII drawing canvas"
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={(event) => finishInteraction(event, true)}
           onPointerCancel={(event) => finishInteraction(event, false)}
           onLostPointerCapture={(event) => {
-            if (interactionRef.current?.pointerId === event.pointerId) {
+            const interaction = interactionRef.current
+            if (interaction?.pointerId === event.pointerId) {
+              restoreImageTransform(interaction)
               interactionRef.current = null
               setMarquee(null)
               setMoveOffset({ x: 0, y: 0 })
@@ -458,7 +648,9 @@ export function CanvasEditor() {
           {gridSize.columns} COL × {gridSize.rows} ROW
         </span>
         <span className="hidden truncate text-neutral-500 xl:inline">
-          LEFT: DRAW / RIGHT: SELECT + MOVE / MIDDLE OR ALT: PAN / WHEEL: ZOOM
+          {activeLayer?.type === 'image'
+            ? 'DRAG IMAGE: MOVE / CORNER HANDLE: SCALE / MIDDLE OR ALT: PAN'
+            : 'LEFT: DRAW / RIGHT: SELECT + MOVE / MIDDLE OR ALT: PAN / WHEEL: ZOOM'}
         </span>
         <span className="shrink-0">{activeSelectedPoints.length} SELECTED</span>
       </div>

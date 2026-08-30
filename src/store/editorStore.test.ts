@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { compileAsciiText, getProjectFileName } from '../lib/exportAscii'
+import { IMAGE_SCALE_MIN } from './editorStore'
 import { useEditorStore } from './editorStore'
 
 const getAsciiLayerCells = (layerId: string) => {
@@ -236,5 +237,79 @@ describe('useEditorStore', () => {
       zoom: 1,
       pan: { x: 0, y: 0 },
     })
+  })
+
+  it('updates only the requested image layer and normalizes non-finite position and scale inputs', () => {
+    const store = useEditorStore.getState()
+    const asciiLayerId = store.activeLayerId
+
+    if (!asciiLayerId) {
+      throw new Error('Expected an initial active layer')
+    }
+
+    const firstImageLayerId = store.addImageLayer({} as HTMLImageElement, {
+      name: 'FIRST',
+      position: { x: 12, y: 18 },
+      scale: { x: 2, y: 3 },
+    })
+    const secondImageLayerId = store.addImageLayer({} as HTMLImageElement, {
+      name: 'SECOND',
+      position: { x: 40, y: 50 },
+      scale: { x: 4, y: 5 },
+    })
+
+    const beforeUpdate = useEditorStore.getState().layers
+    const asciiLayerBefore = beforeUpdate.find((layer) => layer.id === asciiLayerId)
+    const firstImageLayerBefore = beforeUpdate.find(
+      (layer) => layer.id === firstImageLayerId,
+    )
+    const secondImageLayerBefore = beforeUpdate.find(
+      (layer) => layer.id === secondImageLayerId,
+    )
+
+    if (
+      !asciiLayerBefore ||
+      !firstImageLayerBefore ||
+      !secondImageLayerBefore ||
+      firstImageLayerBefore.type !== 'image' ||
+      secondImageLayerBefore.type !== 'image'
+    ) {
+      throw new Error('Expected seeded layers to exist')
+    }
+
+    store.setImageLayerTransform(
+      firstImageLayerId,
+      { x: Number.NaN, y: Number.POSITIVE_INFINITY },
+      { x: 0, y: Number.POSITIVE_INFINITY },
+    )
+
+    const afterUpdate = useEditorStore.getState().layers
+    const asciiLayerAfter = afterUpdate.find((layer) => layer.id === asciiLayerId)
+    const firstImageLayerAfter = afterUpdate.find(
+      (layer) => layer.id === firstImageLayerId,
+    )
+    const secondImageLayerAfter = afterUpdate.find(
+      (layer) => layer.id === secondImageLayerId,
+    )
+
+    expect(asciiLayerAfter).toBe(asciiLayerBefore)
+    expect(secondImageLayerAfter).toBe(secondImageLayerBefore)
+    expect(firstImageLayerAfter).not.toBe(firstImageLayerBefore)
+    expect(firstImageLayerAfter).toMatchObject({
+      id: firstImageLayerId,
+      type: 'image',
+      position: { x: 12, y: 18 },
+      scale: { x: IMAGE_SCALE_MIN, y: 3 },
+    })
+
+    store.setImageLayerTransform(
+      asciiLayerId,
+      { x: 999, y: 999 },
+      { x: 10, y: 10 },
+    )
+
+    expect(useEditorStore.getState().layers.find((layer) => layer.id === asciiLayerId)).toBe(
+      asciiLayerBefore,
+    )
   })
 })

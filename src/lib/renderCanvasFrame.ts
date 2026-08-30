@@ -4,6 +4,7 @@ import type {
   EditorLayer,
   GridCellKey,
   GridSize,
+  LayerId,
   Point,
   ViewportSize,
 } from '../types/editor'
@@ -29,10 +30,11 @@ export interface CanvasFrameOptions {
   pixelRatio: number
   camera: CameraState
   selection?: CanvasSelectionOverlay
+  activeImageLayerId?: LayerId | null
 }
 
 const CANVAS_FONT =
-  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace'
+  '"Courier New", Courier, monospace'
 
 export const renderCanvasFrame = ({
   context,
@@ -44,6 +46,7 @@ export const renderCanvasFrame = ({
   pixelRatio,
   camera,
   selection,
+  activeImageLayerId,
 }: CanvasFrameOptions): void => {
   context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
   context.globalAlpha = 1
@@ -54,11 +57,21 @@ export const renderCanvasFrame = ({
   context.translate(camera.pan.x, camera.pan.y)
   context.scale(camera.zoom, camera.zoom)
   context.beginPath()
-  context.rect(0, 0, viewport.width, viewport.height)
+  context.rect(
+    metrics.origin.x,
+    metrics.origin.y,
+    metrics.projectWidth,
+    metrics.projectHeight,
+  )
   context.clip()
   context.fillStyle = '#ffffff'
-  context.fillRect(0, 0, viewport.width, viewport.height)
-  context.font = `600 ${metrics.fontSize}px ${CANVAS_FONT}`
+  context.fillRect(
+    metrics.origin.x,
+    metrics.origin.y,
+    metrics.projectWidth,
+    metrics.projectHeight,
+  )
+  context.font = `${metrics.fontSize}px ${CANVAS_FONT}`
   context.textAlign = 'center'
   context.textBaseline = 'middle'
 
@@ -73,10 +86,10 @@ export const renderCanvasFrame = ({
         context.globalAlpha = layer.opacity
         context.drawImage(
           layer.image,
-          layer.position.x,
-          layer.position.y,
-          layer.image.naturalWidth * layer.scale.x,
-          layer.image.naturalHeight * layer.scale.y,
+          metrics.origin.x + layer.position.x * metrics.fitScale,
+          metrics.origin.y + layer.position.y * metrics.fitScale,
+          layer.image.naturalWidth * layer.scale.x * metrics.fitScale,
+          layer.image.naturalHeight * layer.scale.y * metrics.fitScale,
         )
         context.restore()
       }
@@ -91,8 +104,8 @@ export const renderCanvasFrame = ({
       }
       context.fillText(
         character,
-        x * metrics.cellWidth + metrics.cellWidth / 2,
-        y * metrics.cellHeight + metrics.cellHeight / 2,
+        metrics.origin.x + x * metrics.cellWidth + metrics.cellWidth / 2,
+        metrics.origin.y + y * metrics.cellHeight + metrics.cellHeight / 2,
       )
     }
   }
@@ -104,14 +117,14 @@ export const renderCanvasFrame = ({
     context.lineWidth = 1 / camera.zoom
 
     for (let x = 0; x <= gridSize.columns; x += 1) {
-      const xPosition = x * metrics.cellWidth
-      context.moveTo(xPosition, 0)
-      context.lineTo(xPosition, viewport.height)
+      const xPosition = metrics.origin.x + x * metrics.cellWidth
+      context.moveTo(xPosition, metrics.origin.y)
+      context.lineTo(xPosition, metrics.origin.y + metrics.projectHeight)
     }
     for (let y = 0; y <= gridSize.rows; y += 1) {
-      const yPosition = y * metrics.cellHeight
-      context.moveTo(0, yPosition)
-      context.lineTo(viewport.width, yPosition)
+      const yPosition = metrics.origin.y + y * metrics.cellHeight
+      context.moveTo(metrics.origin.x, yPosition)
+      context.lineTo(metrics.origin.x + metrics.projectWidth, yPosition)
     }
 
     context.stroke()
@@ -126,15 +139,15 @@ export const renderCanvasFrame = ({
     for (const cell of selection.cells) {
       context.globalAlpha = 0.2
       context.fillRect(
-        cell.point.x * metrics.cellWidth,
-        cell.point.y * metrics.cellHeight,
+        metrics.origin.x + cell.point.x * metrics.cellWidth,
+        metrics.origin.y + cell.point.y * metrics.cellHeight,
         metrics.cellWidth,
         metrics.cellHeight,
       )
       context.globalAlpha = 1
       context.strokeRect(
-        cell.point.x * metrics.cellWidth,
-        cell.point.y * metrics.cellHeight,
+        metrics.origin.x + cell.point.x * metrics.cellWidth,
+        metrics.origin.y + cell.point.y * metrics.cellHeight,
         metrics.cellWidth,
         metrics.cellHeight,
       )
@@ -147,16 +160,20 @@ export const renderCanvasFrame = ({
         context.globalAlpha = 0.75
         context.fillStyle = '#ffffff'
         context.fillRect(
-          destination.x * metrics.cellWidth,
-          destination.y * metrics.cellHeight,
+          metrics.origin.x + destination.x * metrics.cellWidth,
+          metrics.origin.y + destination.y * metrics.cellHeight,
           metrics.cellWidth,
           metrics.cellHeight,
         )
         context.fillStyle = '#0a0a0a'
         context.fillText(
           cell.character,
-          destination.x * metrics.cellWidth + metrics.cellWidth / 2,
-          destination.y * metrics.cellHeight + metrics.cellHeight / 2,
+          metrics.origin.x +
+            destination.x * metrics.cellWidth +
+            metrics.cellWidth / 2,
+          metrics.origin.y +
+            destination.y * metrics.cellHeight +
+            metrics.cellHeight / 2,
         )
         context.globalAlpha = 1
       }
@@ -175,15 +192,15 @@ export const renderCanvasFrame = ({
       context.globalAlpha = 0.12
       context.fillStyle = '#0a0a0a'
       context.fillRect(
-        minX * metrics.cellWidth,
-        minY * metrics.cellHeight,
+        metrics.origin.x + minX * metrics.cellWidth,
+        metrics.origin.y + minY * metrics.cellHeight,
         width * metrics.cellWidth,
         height * metrics.cellHeight,
       )
       context.globalAlpha = 1
       context.strokeRect(
-        minX * metrics.cellWidth,
-        minY * metrics.cellHeight,
+        metrics.origin.x + minX * metrics.cellWidth,
+        metrics.origin.y + minY * metrics.cellHeight,
         width * metrics.cellWidth,
         height * metrics.cellHeight,
       )
@@ -191,6 +208,54 @@ export const renderCanvasFrame = ({
     }
   }
 
+  const activeImageLayer = layersBottomToTop.find(
+    (layer) =>
+      layer.id === activeImageLayerId && layer.type === 'image' && layer.visible,
+  )
+  if (activeImageLayer?.type === 'image' && activeImageLayer.image.complete) {
+    const imageX =
+      metrics.origin.x + activeImageLayer.position.x * metrics.fitScale
+    const imageY =
+      metrics.origin.y + activeImageLayer.position.y * metrics.fitScale
+    const imageWidth =
+      activeImageLayer.image.naturalWidth *
+      activeImageLayer.scale.x *
+      metrics.fitScale
+    const imageHeight =
+      activeImageLayer.image.naturalHeight *
+      activeImageLayer.scale.y *
+      metrics.fitScale
+    const handleSize = 10 / camera.zoom
+
+    context.globalAlpha = 1
+    context.strokeStyle = '#0a0a0a'
+    context.lineWidth = 2 / camera.zoom
+    context.setLineDash([5 / camera.zoom, 3 / camera.zoom])
+    context.strokeRect(imageX, imageY, imageWidth, imageHeight)
+    context.setLineDash([])
+    context.fillStyle = '#ffffff'
+    context.fillRect(
+      imageX + imageWidth - handleSize / 2,
+      imageY + imageHeight - handleSize / 2,
+      handleSize,
+      handleSize,
+    )
+    context.strokeRect(
+      imageX + imageWidth - handleSize / 2,
+      imageY + imageHeight - handleSize / 2,
+      handleSize,
+      handleSize,
+    )
+  }
+
   context.globalAlpha = 1
+  context.strokeStyle = '#0a0a0a'
+  context.lineWidth = 2 / camera.zoom
+  context.strokeRect(
+    metrics.origin.x,
+    metrics.origin.y,
+    metrics.projectWidth,
+    metrics.projectHeight,
+  )
   context.restore()
 }

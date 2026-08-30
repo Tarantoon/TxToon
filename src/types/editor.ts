@@ -82,6 +82,11 @@ export interface EditorActions {
   setActiveLayer: (layerId: LayerId) => void
   setLayerVisibility: (layerId: LayerId, visible: boolean) => void
   setImageLayerOpacity: (layerId: LayerId, opacity: number) => void
+  setImageLayerTransform: (
+    layerId: LayerId,
+    position: Point,
+    scale: Scale,
+  ) => void
   moveLayer: (layerId: LayerId, direction: LayerDirection) => void
   reorderLayer: (layerId: LayerId, targetLayerId: LayerId) => void
   setProjectName: (projectName: string) => void

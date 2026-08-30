@@ -37,7 +37,8 @@ bun run build
 - Left-drag paints the active glyph.
 - Right-drag an existing glyph or selection to move it.
 - Right-drag empty canvas space to create a multi-glyph selection.
+- Select an image layer, then drag the image to move it or its lower-right handle to scale it.
 - Middle-drag or Alt-drag pans the viewport.
 - Mouse wheel or workspace buttons control visual zoom.
-- Layer drag handles update bottom-to-top compositing order.
+- Layer drag handles support pointer and keyboard bottom-to-top reordering.
 - Column and row controls resize the export grid without deleting layer data.

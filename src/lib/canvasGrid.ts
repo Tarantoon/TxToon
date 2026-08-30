@@ -10,6 +10,10 @@ export interface GridMetrics {
   fontSize: number
   cellWidth: number
   cellHeight: number
+  origin: Point
+  projectWidth: number
+  projectHeight: number
+  fitScale: number
 }
 
 export interface GridBounds {
@@ -19,17 +23,36 @@ export interface GridBounds {
   maxY: number
 }
 
+export const CELL_WIDTH_TO_HEIGHT_RATIO = 0.6
+export const MAX_CELL_HEIGHT = 28
+export const WORKSPACE_MARGIN = 28
+
 export const getGridMetrics = (
   gridSize: GridSize,
   viewport: ViewportSize,
 ): GridMetrics => {
-  const cellWidth = viewport.width / gridSize.columns
-  const cellHeight = viewport.height / gridSize.rows
+  const availableWidth = Math.max(1, viewport.width - WORKSPACE_MARGIN * 2)
+  const availableHeight = Math.max(1, viewport.height - WORKSPACE_MARGIN * 2)
+  const cellHeight = Math.min(
+    MAX_CELL_HEIGHT,
+    availableHeight / gridSize.rows,
+    availableWidth / (gridSize.columns * CELL_WIDTH_TO_HEIGHT_RATIO),
+  )
+  const cellWidth = cellHeight * CELL_WIDTH_TO_HEIGHT_RATIO
+  const projectWidth = cellWidth * gridSize.columns
+  const projectHeight = cellHeight * gridSize.rows
 
   return {
     cellWidth,
     cellHeight,
-    fontSize: Math.max(1, Math.min(cellHeight * 0.78, cellWidth * 1.25)),
+    fontSize: cellHeight,
+    origin: {
+      x: (viewport.width - projectWidth) / 2,
+      y: (viewport.height - projectHeight) / 2,
+    },
+    projectWidth,
+    projectHeight,
+    fitScale: cellHeight / MAX_CELL_HEIGHT,
   }
 }
 
@@ -55,13 +78,10 @@ export const getGridPointFromScreen = (
   gridSize: GridSize,
   shouldClamp = false,
 ): Point | null => {
+  const projectPoint = getProjectPointFromScreen(screenPoint, camera, metrics)
   const point = {
-    x: Math.floor(
-      ((screenPoint.x - camera.pan.x) / camera.zoom) / metrics.cellWidth,
-    ),
-    y: Math.floor(
-      ((screenPoint.y - camera.pan.y) / camera.zoom) / metrics.cellHeight,
-    ),
+    x: Math.floor(projectPoint.x / metrics.cellWidth),
+    y: Math.floor(projectPoint.y / metrics.cellHeight),
   }
 
   if (shouldClamp) {
@@ -78,6 +98,19 @@ export const getGridPointFromScreen = (
     ? point
     : null
 }
+
+export const getProjectPointFromScreen = (
+  screenPoint: Point,
+  camera: CameraState,
+  metrics: GridMetrics,
+): Point => ({
+  x:
+    (screenPoint.x - camera.pan.x) / camera.zoom -
+    metrics.origin.x,
+  y:
+    (screenPoint.y - camera.pan.y) / camera.zoom -
+    metrics.origin.y,
+})
 
 export const clampGridMoveOffset = (
   points: Point[],
